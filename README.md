@@ -18,7 +18,7 @@ It also shows `ModLoader active: <mods>` next to the version text in the menu (`
 ### Install
 1. Back up your existing `d3d9.dll` in the game folder (if you have one, e.g. ReShade).
 2. Copy `d3d9.dll` next to `SimTractor.exe`.
-3. Create a `mods` folder there and put `.asi` mods in it (e.g. [Widescreen Fix]([../../../SimTractor-WidescreenFix](https://github.com/Gbka11/Simtractor-3.66f-Widescreen-Fix))).
+3. Create a `mods` folder there and put `.asi` mods in it (e.g. [Widescreen Fix]((https://github.com/Gbka11/Simtractor-3.66f-Widescreen-Fix))).
 4. Start the game. Check `asi_loader.log` if a mod does not load.
 
 ### Uninstall
@@ -43,7 +43,7 @@ W menu przy wersji pokazuje napis `ModLoader active: <lista modów>` (`asi_loade
 ### Instalacja
 1. Zrób kopię obecnego `d3d9.dll` w folderze gry (jeśli jakiś masz, np. ReShade).
 2. Skopiuj `d3d9.dll` obok `SimTractor.exe`.
-3. Utwórz tam folder `mods` i wrzuć do niego mody `.asi` (np. [Widescreen Fix](../../../SimTractor-WidescreenFix)).
+3. Utwórz tam folder `mods` i wrzuć do niego mody `.asi` (np. [Widescreen Fix](https://github.com/Gbka11/Simtractor-3.66f-Widescreen-Fix)).
 4. Uruchom grę. Jeśli mod się nie ładuje, sprawdź `asi_loader.log`.
 
 ### Odinstalowanie
