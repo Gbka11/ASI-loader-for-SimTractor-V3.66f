@@ -1,8 +1,8 @@
-# SimTractor 3.5 – ASI Loader
+# SimTractor 3.66f – ASI Loader
 
 **Author:** Sponge (Gbka)
 
-A small plugin loader for **SimTractor 3.5 (V3.66f)**. / Mały loader wtyczek dla **SimTractor 3.5 (V3.66f)**.
+A small plugin loader for **SimTractor V3.66f**. / Mały loader wtyczek dla **SimTractor V3.66f**.
 
 📥 **Download:** see **[Releases](../../releases)** (right side of this page). / **Pobieranie:** zakładka **Releases** (po prawej).
 
@@ -25,7 +25,7 @@ It also shows `ModLoader active: <mods>` next to the version text in the menu (`
 Delete `d3d9.dll` and the `mods` folder (restore your old `d3d9.dll` if you had one).
 
 ### Notes
-- Tested only with SimTractor 3.5 V3.66f (32-bit).
+- Tested only with SimTractor V3.66f (32-bit).
 - Another `d3d9.dll` wrapper (ReShade etc.) in the same folder will conflict – only one `d3d9.dll` can exist.
 - Antivirus may flag any proxy `d3d9.dll` as suspicious (false positive). Full source is in `src`.
 - The loader does not modify any game files.
@@ -36,7 +36,7 @@ Delete `d3d9.dll` and the `mods` folder (restore your old `d3d9.dll` if you had 
 ## 🇵🇱 Polski
 
 ### Co to jest
-Mały loader wtyczek dla SimTractor 3.5 (V3.66f). Zastępuje `d3d9.dll` w folderze gry, przekazuje `Direct3DCreate9` do prawdziwego `d3d9.dll` z Windows i ładuje wszystkie pliki `*.asi` z folderu `mods` (oraz z folderu gry). Każdy mod to osobny plik `.asi` (+ opcjonalnie `.ini` obok).
+Mały loader wtyczek dla SimTractor (V3.66f). Zastępuje `d3d9.dll` w folderze gry, przekazuje `Direct3DCreate9` do prawdziwego `d3d9.dll` z Windows i ładuje wszystkie pliki `*.asi` z folderu `mods` (oraz z folderu gry). Każdy mod to osobny plik `.asi` (+ opcjonalnie `.ini` obok).
 
 W menu przy wersji pokazuje napis `ModLoader active: <lista modów>` (`asi_loader.ini`: `ShowOverlay=0` wyłącza) i zapisuje `asi_loader.log`.
 
@@ -50,7 +50,7 @@ W menu przy wersji pokazuje napis `ModLoader active: <lista modów>` (`asi_loade
 Usuń `d3d9.dll` i folder `mods` (przywróć stary `d3d9.dll`, jeśli go miałeś).
 
 ### Uwagi
-- Testowane tylko na SimTractor 3.5 V3.66f (32-bit).
+- Testowane tylko na SimTractor V3.66f (32-bit).
 - Inny wrapper `d3d9.dll` (ReShade itp.) w tym samym folderze będzie się gryzł – może być tylko jeden `d3d9.dll`.
 - Antywirus może oznaczyć każdy proxy `d3d9.dll` jako podejrzany (false positive). Pełny kod źródłowy w `src`.
 - Loader nie zmienia żadnych plików gry.
