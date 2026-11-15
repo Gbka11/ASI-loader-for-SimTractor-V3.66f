@@ -1,23 +1,23 @@
-// asi_loader.cpp  -  maly loader wtyczek .asi dla SimTractor (podszywa sie pod d3d9.dll)
+// asi_loader.cpp  -  small .asi plugin loader for SimTractor (poses as d3d9.dll)
 //
-// Co robi:
-//   * gra ladowala juz d3d9.dll z folderu obok SimTractor.exe - ten plik robi to samo (przekazuje Direct3DCreate9
-//     do prawdziwego d3d9.dll z Windows), a przy okazji laduje wszystkie pliki *.asi z podfolderu "mods"
-//     (oraz z folderu gry, obok exe),
-//   * kazdy mod to osobny plik .asi (+ ewentualnie wlasny .ini w tym samym folderze),
-//   * dopisuje w grze (przy linii z wersja w prawym dolnym rogu menu) napis "ModLoader active: <lista modow>" (asi_loader.ini: ShowOverlay=0 wylacza),
-//   * log w asi_loader.log obok loadera: co zaladowano, a co sie nie udalo (z kodem bledu).
-//   * API modow z WATKU GRY: loader podmienia w IAT SimTractor.exe import ?Process@CKContext@@QAEHXZ (CK2.dll),
-//     wolany raz na klatke z petli CustomPlayera (SimTractor.exe FUN_00403a00). Mod moze (opcjonalnie) eksportowac:
-//        extern "C" __declspec(dllexport) void __cdecl ModOnInit(void* ckContext);        // 1x, przed 1. Process
-//        extern "C" __declspec(dllexport) void __cdecl ModOnPreProcess(void* ckContext);  // co klatke, przed Process
-//        extern "C" __declspec(dllexport) void __cdecl ModOnPostProcess(void* ckContext); // co klatke, po Process
-//     W tych callbackach wolno wolac API CK2 (ten sam watek co silnik). Wyjatki SEH z modu sa lapane i mod jest
-//     wtedy wylaczany (log). asi_loader.ini: [General] TickApi=0 wylacza haczyk.
-//     Stabilnosc: brak callbackow przy ctx==NULL i przy ponownym wejsciu w Process; ostrzezenie w logu, gdy
-//     callback trwa dluzej niz [General] WarnMs (domyslnie 50 ms, 0 = wylacz).
+// What it does:
+//   * the game already loads d3d9.dll from the folder next to SimTractor.exe - this file does the same (forwards Direct3DCreate9
+//     to the real Windows d3d9.dll), and on top of that loads every *.asi file from the "mods" subfolder
+//     (and from the game folder, next to the exe),
+//   * each mod is a separate .asi file (+ optionally its own .ini in the same folder),
+//   * adds "ModLoader active: <mod list>" in the game (next to the version line in the bottom right of the menu) (asi_loader.ini: ShowOverlay=0 turns it off),
+//   * writes asi_loader.log next to the loader: what was loaded and what failed (with error code).
+//   * mod API on the GAME THREAD: the loader hooks the ?Process@CKContext@@QAEHXZ (CK2.dll) import in SimTractor.exe's IAT,
+//     called once per frame from the CustomPlayer loop (SimTractor.exe FUN_00403a00). A mod can (optionally) export:
+//        extern "C" __declspec(dllexport) void __cdecl ModOnInit(void* ckContext);        // once, before the first Process
+//        extern "C" __declspec(dllexport) void __cdecl ModOnPreProcess(void* ckContext);  // every frame, before Process
+//        extern "C" __declspec(dllexport) void __cdecl ModOnPostProcess(void* ckContext); // every frame, after Process
+//     These callbacks may call the CK2 API (same thread as the engine). SEH exceptions from a mod are caught and the mod
+//     is then disabled (logged). asi_loader.ini: [General] TickApi=0 disables the hook.
+//     Stability: no callbacks when ctx==NULL or on re-entry into Process; a warning is logged when
+//     a callback takes longer than [General] WarnMs (default 50 ms, 0 = off).
 //
-// Kompilacja (x86 Native Tools Command Prompt for VS):
+// Build (x86 Native Tools Command Prompt for VS):
 //   cl /nologo /LD /O2 /MT asi_loader.cpp /Fe:d3d9.dll
 
 #include <windows.h>
@@ -28,7 +28,7 @@
 #pragma comment(lib, "user32.lib")
 #pragma comment(linker, "/export:Direct3DCreate9=C:\\Windows\\System32\\d3d9.Direct3DCreate9")
 
-static char g_dir[MAX_PATH];        // folder, w ktorym lezy ten loader (i exe)
+static char g_dir[MAX_PATH];        // folder this loader (and the exe) is in
 static char g_log[MAX_PATH];
 
 static void Log(const char* fmt, ...)
@@ -41,7 +41,7 @@ static void Log(const char* fmt, ...)
     fclose(f);
 }
 
-// ------------------------------------------------------------------ callbacki modow (watek gry)
+// ------------------------------------------------------------------ mod callbacks (game thread)
 typedef void (__cdecl *FnModCb)(void* ctx);
 struct ModCb { char name[64]; FnModCb init, pre, post; int dead; };
 #define MAX_MODS 64
@@ -54,7 +54,7 @@ static void RegisterCallbacks(HMODULE m, const char* file)
     FnModCb pre  = (FnModCb)GetProcAddress(m, "ModOnPreProcess");
     FnModCb post = (FnModCb)GetProcAddress(m, "ModOnPostProcess");
     if (!init && !pre && !post) return;
-    if (g_cbCount >= MAX_MODS) { Log("tick API: za duzo modow, pomijam %s", file); return; }
+    if (g_cbCount >= MAX_MODS) { Log("tick API: too many mods, skipping %s", file); return; }
     ModCb& c = g_cb[g_cbCount++];
     strncpy_s(c.name, sizeof(c.name), file, _TRUNCATE);
     c.init = init; c.pre = pre; c.post = post; c.dead = 0;
@@ -63,7 +63,7 @@ static void RegisterCallbacks(HMODULE m, const char* file)
 
 static int g_count = 0;
 static char g_names[1024] = "";
-static char g_short[512] = "";       // nazwy modow bez ".asi", po przecinku (do napisu w grze)
+static char g_short[512] = "";       // mod names without ".asi", comma separated (for the in-game text)
 
 static void LoadFrom(const char* dir)
 {
@@ -78,7 +78,7 @@ static void LoadFrom(const char* dir)
         _snprintf_s(path, sizeof(path), _TRUNCATE, "%s%s", dir, fd.cFileName);
         HMODULE m = LoadLibraryA(path);
         if (m) {
-            Log("zaladowano: %s", path);
+            Log("loaded: %s", path);
             RegisterCallbacks(m, fd.cFileName);
             g_count++;
             strncat_s(g_names, sizeof(g_names), "\n - ", _TRUNCATE);
@@ -90,35 +90,35 @@ static void LoadFrom(const char* dir)
                 strncat_s(g_short, sizeof(g_short), nm, _TRUNCATE);
             }
         }
-        else   Log("BLAD ladowania: %s (kod %lu)", path, GetLastError());
+        else   Log("LOAD ERROR: %s (code %lu)", path, GetLastError());
     } while (FindNextFileA(h, &fd));
     FindClose(h);
 }
 
-// Mody ladujemy SYNCHRONICZNIE w DllMain (wtyczki .asi nie robia w swoim DllMain nic ciezkiego - tylko startuja watki),
-// dzieki czemu sa zaladowane, zanim gra pojdzie dalej (potrzebne np. dla modu widescreen, ktory zmienia ustawienia gry).
+// Mods are loaded SYNCHRONOUSLY in DllMain (.asi plugins do nothing heavy in their DllMain - they only start threads),
+// so they are loaded before the game continues (needed e.g. by the widescreen mod, which changes the game settings).
 static void LoadAll()
 {
     Log("---- asi_loader start ----");
     char mods[MAX_PATH];
     _snprintf_s(mods, sizeof(mods), _TRUNCATE, "%smods\\", g_dir);
-    LoadFrom(mods);      // najpierw podfolder mods
-    LoadFrom(g_dir);     // potem folder gry
-    Log("---- asi_loader koniec ---- (modow: %d)", g_count);
+    LoadFrom(mods);      // mods subfolder first
+    LoadFrom(g_dir);     // then the game folder
+    Log("---- asi_loader end ---- (mods: %d)", g_count);
 }
 
-// Okienko startowe w osobnym watku (nie blokuje gry).
+// Startup message box in a separate thread (does not block the game).
 static DWORD WINAPI LoaderThread(LPVOID)
 {
 
-    // komunikat startowy (wylaczany w asi_loader.ini: [General] ShowMessage=0), znika sam po kilku sekundach
+    // startup message (turned off in asi_loader.ini: [General] ShowMessage=0), closes by itself after a few seconds
     char ini[MAX_PATH];
     _snprintf_s(ini, sizeof(ini), _TRUNCATE, "%sasi_loader.ini", g_dir);
     if (GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES)
         WritePrivateProfileStringA("General", "ShowMessage", "0", ini);
     if (GetPrivateProfileIntA("General", "ShowMessage", 1, ini)) {
         char text[1400];
-        _snprintf_s(text, sizeof(text), _TRUNCATE, "SimTractor ModLoader dziala.\nZaladowane mody: %d%s", g_count, g_names);
+        _snprintf_s(text, sizeof(text), _TRUNCATE, "SimTractor ModLoader is running.\nLoaded mods: %d%s", g_count, g_names);
         typedef int (WINAPI *MBT)(HWND, LPCSTR, LPCSTR, UINT, WORD, DWORD);
         HMODULE u = LoadLibraryA("user32.dll");
         MBT mbt = u ? (MBT)GetProcAddress(u, "MessageBoxTimeoutA") : NULL;
@@ -128,9 +128,9 @@ static DWORD WINAPI LoaderThread(LPVOID)
     return 0;
 }
 
-// ------------------------------------------------------------------ napis "ModLoader" w grze
-// Gra rysuje tekst w menu przez Interface.dll (funkcja rysujaca tekst, RVA 0x16270, thiscall, 8 argumentow, ret 0x20;
-// 3. argument = napis). Linie informacyjne z wersja gry ("V3.66f | FPS = ... ") dostaja doklejona linie z informacja o ModLoaderze.
+// ------------------------------------------------------------------ in-game "ModLoader" text
+// The game draws menu text through Interface.dll (text drawing function, RVA 0x16270, thiscall, 8 args, ret 0x20;
+// 3rd arg = string). The info lines with the game version ("V3.66f | FPS = ... ") get an extra line about the ModLoader.
 typedef int (__thiscall *FnDrawText)(void* self, int a1, int a2, const char* str, int a4, int a5, int a6, int a7, int a8);
 static BYTE* g_drawTramp = NULL;
 static char  g_overlayMsg[600] = "";
@@ -155,7 +155,7 @@ static void PatchOverlay(HMODULE m)
 {
     BYTE* f = (BYTE*)m + 0x16270;
     static const BYTE sig[7] = { 0x83,0xEC,0x58, 0x8B,0x44,0x24,0x60 };
-    if (memcmp(f, sig, 7) != 0) { Log("napis w grze: inna wersja Interface.dll - pomijam"); return; }
+    if (memcmp(f, sig, 7) != 0) { Log("in-game text: different Interface.dll version - skipping"); return; }
     BYTE* t = (BYTE*)VirtualAlloc(NULL, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!t) return;
     memcpy(t, sig, 7);
@@ -167,40 +167,40 @@ static void PatchOverlay(HMODULE m)
         memcpy(f, j, 7);
         VirtualProtect(f, 7, old, &old);
         FlushInstructionCache(GetCurrentProcess(), f, 7);
-        Log("napis w grze: haczyk ok");
-    } else Log("napis w grze: BLAD zapisu");
+        Log("in-game text: hook ok");
+    } else Log("in-game text: WRITE ERROR");
 }
 
 static DWORD WINAPI OverlayThread(LPVOID)
 {
-    for (int i = 0; i < 120000; i++) {              // Interface.dll laduje sie pozniej - czekamy do ~2 min
+    for (int i = 0; i < 120000; i++) {              // Interface.dll loads later - wait up to ~2 min
         HMODULE m = GetModuleHandleA("Interface.dll");
         if (m) { PatchOverlay(m); return 0; }
         Sleep(1);
     }
-    Log("napis w grze: Interface.dll nie zostal zaladowany");
+    Log("in-game text: Interface.dll was not loaded");
     return 0;
 }
 
-// ------------------------------------------------------------------ haczyk IAT: CKContext::Process
-// thiscall int CKContext::Process(void) -> __fastcall(ecx=this, edx=smiec), bez argumentow na stosie.
+// ------------------------------------------------------------------ IAT hook: CKContext::Process
+// thiscall int CKContext::Process(void) -> __fastcall(ecx=this, edx=garbage), no stack args.
 typedef int (__fastcall *FnProcess)(void* ctx, void* edx);
 static FnProcess g_origProcess = NULL;
 static int       g_initDone = 0;
 
-// osobna funkcja bez obiektow C++ (wymog __try)
+// separate function without C++ objects (required by __try)
 static int SafeCall(FnModCb f, void* ctx, DWORD* code)
 {
     __try { f(ctx); return 1; }
     __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return 0; }
 }
 
-// pomiar czasu callbackow: ostrzezenie w logu, gdy mod przekroczy WarnMs (asi_loader.ini, domyslnie 50 ms);
-// max 5 ostrzezen na mod, zeby nie zasypac logu. Zachowanie API bez zmian.
+// callback timing: log a warning when a mod exceeds WarnMs (asi_loader.ini, default 50 ms);
+// max 5 warnings per mod so the log is not flooded. API behavior unchanged.
 static LARGE_INTEGER g_qpf;
 static int g_warnMs = 50;
 static int g_warnCount[MAX_MODS];
-static volatile LONG g_inHook = 0;      // blokada ponownego wejscia (np. Process wolany z wnetrza callbacku)
+static volatile LONG g_inHook = 0;      // re-entry guard (e.g. Process called from inside a callback)
 
 static void RunCallbacks(int which, void* ctx)
 {
@@ -215,14 +215,14 @@ static void RunCallbacks(int which, void* ctx)
         QueryPerformanceCounter(&t1);
         if (!ok) {
             c.dead = 1;
-            Log("tick API: wyjatek 0x%08lX w %s (%s) - mod wylaczony",
+            Log("tick API: exception 0x%08lX in %s (%s) - mod disabled",
                 code, c.name, which == 0 ? "ModOnInit" : which == 1 ? "ModOnPreProcess" : "ModOnPostProcess");
         }
         if (g_qpf.QuadPart && g_warnMs > 0) {
             double ms = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)g_qpf.QuadPart;
             if (ms > g_warnMs && which != 0 && g_warnCount[i] < 5) {
                 g_warnCount[i]++;
-                Log("tick API: %s zajal %.1f ms w jednej klatce (%s)", c.name, ms, which == 1 ? "pre" : "post");
+                Log("tick API: %s took %.1f ms in one frame (%s)", c.name, ms, which == 1 ? "pre" : "post");
             }
         }
     }
@@ -230,10 +230,10 @@ static void RunCallbacks(int which, void* ctx)
 
 static int __fastcall HookProcess(void* ctx, void* edx)
 {
-    // bez kontekstu albo przy ponownym wejsciu: tylko oryginal (bez callbackow)
+    // no context or re-entry: original only (no callbacks)
     if (!ctx || InterlockedCompareExchange(&g_inHook, 1, 0) != 0)
         return g_origProcess(ctx, edx);
-    if (!g_initDone) { g_initDone = 1; Log("tick API: pierwsza klatka, CKContext=%p", ctx); RunCallbacks(0, ctx); }
+    if (!g_initDone) { g_initDone = 1; Log("tick API: first frame, CKContext=%p", ctx); RunCallbacks(0, ctx); }
     RunCallbacks(1, ctx);
     int r = g_origProcess(ctx, edx);
     RunCallbacks(2, ctx);
@@ -247,10 +247,10 @@ static void InstallProcessHook()
     IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)base;
     IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
     IMAGE_DATA_DIRECTORY& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (!dir.VirtualAddress) { Log("tick API: brak importow w exe"); return; }
+    if (!dir.VirtualAddress) { Log("tick API: exe has no imports"); return; }
     for (IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)(base + dir.VirtualAddress); d->Name; d++) {
         if (_stricmp((const char*)(base + d->Name), "CK2.dll") != 0) continue;
-        if (!d->OriginalFirstThunk) { Log("tick API: brak OriginalFirstThunk dla CK2.dll"); return; }
+        if (!d->OriginalFirstThunk) { Log("tick API: no OriginalFirstThunk for CK2.dll"); return; }
         IMAGE_THUNK_DATA* names = (IMAGE_THUNK_DATA*)(base + d->OriginalFirstThunk);
         IMAGE_THUNK_DATA* iat   = (IMAGE_THUNK_DATA*)(base + d->FirstThunk);
         for (; names->u1.AddressOfData; names++, iat++) {
@@ -259,16 +259,16 @@ static void InstallProcessHook()
             if (strncmp(fn, "?Process@CKContext@@", 20) != 0) continue;
             DWORD old;
             if (!VirtualProtect(&iat->u1.Function, sizeof(DWORD), PAGE_READWRITE, &old)) {
-                Log("tick API: BLAD VirtualProtect IAT"); return;
+                Log("tick API: VirtualProtect IAT ERROR"); return;
             }
             g_origProcess = (FnProcess)iat->u1.Function;
             iat->u1.Function = (DWORD)(ULONG_PTR)&HookProcess;
             VirtualProtect(&iat->u1.Function, sizeof(DWORD), old, &old);
-            Log("tick API: haczyk %s ok (orig %p)", fn, g_origProcess);
+            Log("tick API: hook %s ok (orig %p)", fn, g_origProcess);
             return;
         }
     }
-    Log("tick API: nie znaleziono importu CKContext::Process - callbacki nieaktywne");
+    Log("tick API: CKContext::Process import not found - callbacks inactive");
 }
 
 BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID)
