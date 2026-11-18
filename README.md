@@ -83,6 +83,9 @@ Callbacks run on the game thread. Details in the header of `src/asi_loader.cpp`.
 Open **x86 Native Tools Command Prompt for VS** (32-bit!) and run `build.bat`.
 
 
+If my mods helped you, you can buy me a coffee: ko-fi.com/gbka1
+
+Jeśli moje mody Ci się przydały, możesz postawić mi kawę: ko-fi.com/gbka1
 ---
 
 ## ☕ Support / Wsparcie
